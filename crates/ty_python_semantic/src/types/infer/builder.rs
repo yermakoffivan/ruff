@@ -9433,7 +9433,8 @@ impl<'db, 'ast> TypeInferenceBuilder<'db, 'ast> {
         }
 
         let inner_send_ty = iterable_type
-            .generator_send_type(db, env)
+            .generator_types(db, env)
+            .map(|types| types.send_ty)
             .unwrap_or_else(|| Type::none(db, env));
 
         if !outer_expected

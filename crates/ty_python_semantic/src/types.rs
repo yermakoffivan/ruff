@@ -6859,16 +6859,34 @@ impl<'db> Type<'db> {
         {
             Solutions::Unsatisfiable => None,
             Solutions::Unconstrained => Some([Type::unknown(); N]),
-            Solutions::Constrained(solutions) => Some(typevars.map(|typevar| {
-                let mut types = solutions.iter().filter_map(|solution| {
-                    solution
-                        .iter()
-                        .find(|binding| binding.bound_typevar == typevar)
-                        .map(|binding| binding.solution)
+            Solutions::Constrained(solutions) => {
+                let generic_context = GenericContext::from_typevar_instances(db, env, typevars);
+                let types = typevars.map(|typevar| {
+                    let mut types = solutions.iter().filter_map(|solution| {
+                        solution
+                            .iter()
+                            .find(|binding| binding.bound_typevar == typevar)
+                            .map(|binding| binding.solution)
+                    });
+                    let first = types.next()?;
+                    Some(UnionType::from_elements(
+                        db,
+                        env,
+                        iter::once(first).chain(types),
+                    ))
                 });
-                let first = types.next().unwrap_or_else(Type::unknown);
-                UnionType::from_elements(db, env, iter::once(first).chain(types))
-            })),
+
+                // Solutions can reference other synthetic parameters from the same query. For
+                // example, `SendT = None & ReturnT` and `ReturnT = SendT | None` both resolve to
+                // `None`; recursively specializing them prevents those internal variables from
+                // escaping into inferred generator types.
+                let specialization = generic_context.specialize_recursive(db, types);
+                Some(typevars.map(|typevar| {
+                    specialization
+                        .get(db, typevar)
+                        .unwrap_or_else(Type::unknown)
+                }))
+            }
         }
     }
 
@@ -6901,15 +6919,6 @@ impl<'db> Type<'db> {
     ) -> Option<Type<'db>> {
         self.generator_types(db, env)
             .map(|generator_types| generator_types.return_ty)
-    }
-
-    fn generator_send_type(
-        self,
-        db: &'db dyn Db,
-        env: &ProgramEnvironment<'db>,
-    ) -> Option<Type<'db>> {
-        self.generator_types(db, env)
-            .map(|generator_types| generator_types.send_ty)
     }
 
     /// Return the instance approximation, discarding whether the projection is exact.

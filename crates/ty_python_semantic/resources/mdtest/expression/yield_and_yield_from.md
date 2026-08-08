@@ -134,60 +134,6 @@ def persons(f: bool) -> Generator[None, None, Person]:
         return {"name": 42}
 ```
 
-## Structurally compatible generator protocols
-
-A protocol does not need to explicitly inherit from `Generator` for ty to infer its yield, send, and
-return types from its methods.
-
-```toml
-[environment]
-python-version = "3.13"
-```
-
-```py
-from types import TracebackType
-from typing import Generator, Protocol, overload
-
-class StructuralGenerator(Protocol):
-    def __iter__(self) -> Generator[int, bytes, str]: ...
-    def __next__(self) -> int: ...
-    def send(self, value: bytes, /) -> int: ...
-    @overload
-    def throw(
-        self,
-        typ: type[BaseException],
-        val: object = None,
-        traceback: TracebackType | None = None,
-        /,
-    ) -> int: ...
-    @overload
-    def throw(
-        self,
-        typ: BaseException,
-        val: None = None,
-        traceback: TracebackType | None = None,
-        /,
-    ) -> int: ...
-    def close(self) -> str | None: ...
-
-def structural_generator() -> StructuralGenerator:
-    sent = yield 1
-    reveal_type(sent)  # revealed: bytes
-    return "done"
-
-def delegated_generator() -> Generator[int, bytes, None]:
-    result = yield from structural_generator()
-    reveal_type(result)  # revealed: str
-
-def invalid_structural_yield() -> StructuralGenerator:
-    yield "wrong"  # error: [invalid-yield]
-    return "done"
-
-def invalid_structural_return() -> StructuralGenerator:
-    yield 1
-    return 42  # error: [invalid-return-type]
-```
-
 ## `yield` expression send type inference
 
 ```py
@@ -301,6 +247,93 @@ def inner_aliased_generator() -> FullGeneratorAlias[int, bytes, str]:
 def outer_aliased_generator() -> FullGeneratorAlias[int, bytes, None]:
     result = yield from inner_aliased_generator()
     reveal_type(result)  # revealed: str
+```
+
+## Structurally compatible generator protocols
+
+A protocol does not need to explicitly inherit from `Generator` for ty to infer its yield, send, and
+return types from its methods.
+
+```toml
+[environment]
+python-version = "3.13"
+```
+
+```py
+from types import TracebackType
+from typing import Generator, Protocol, overload
+
+class StructuralGenerator(Protocol):
+    def __iter__(self) -> Generator[int, bytes, str]: ...
+    def __next__(self) -> int: ...
+    def send(self, value: bytes, /) -> int: ...
+    @overload
+    def throw(
+        self,
+        typ: type[BaseException],
+        val: object = None,
+        traceback: TracebackType | None = None,
+        /,
+    ) -> int: ...
+    @overload
+    def throw(
+        self,
+        typ: BaseException,
+        val: None = None,
+        traceback: TracebackType | None = None,
+        /,
+    ) -> int: ...
+    def close(self) -> str | None: ...
+
+def structural_generator() -> StructuralGenerator:
+    sent = yield 1
+    reveal_type(sent)  # revealed: bytes
+    return "done"
+
+def delegated_generator() -> Generator[int, bytes, None]:
+    result = yield from structural_generator()
+    reveal_type(result)  # revealed: str
+
+def invalid_structural_yield() -> StructuralGenerator:
+    yield "wrong"  # error: [invalid-yield]
+    return "done"
+
+def invalid_structural_return() -> StructuralGenerator:
+    yield 1
+    return 42  # error: [invalid-return-type]
+```
+
+## Generic generator return types
+
+A generic yield type does not change the generator's separately annotated send or return types.
+
+```py
+from collections.abc import Generator
+from typing import TypeVar
+
+T = TypeVar("T")
+
+def generator_return(value: T) -> Generator[T, None, None]:
+    sent = yield value
+    reveal_type(sent)  # revealed: None
+
+    # error: [invalid-return-type] "Return type does not match returned value: expected `None`, found `T@generator_return`"
+    return value
+```
+
+## Delegating to a generic generator expression
+
+A generator expression over an iterable of generic values remains compatible with an iterator that
+yields the same values.
+
+```py
+from collections.abc import Iterable, Iterator
+from typing import TypeVar
+
+T = TypeVar("T")
+
+def delegated(values: Iterable[T]) -> Iterator[T]:
+    yield from (value for value in values)
 ```
 
 ## Error cases
